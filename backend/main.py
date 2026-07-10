@@ -72,8 +72,10 @@ if not firebase_admin._apps:
 db = firestore.client()
 security = HTTPBearer(auto_error=False)
 
-project_id = os.getenv("GCP_PROJECT_ID")
-client = genai.Client(vertexai=True, project=project_id, location="us-central1")
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    raise RuntimeError("Missing GEMINI_API_KEY - get a free key at https://aistudio.google.com and add it to backend/.env")
+client = genai.Client(api_key=gemini_api_key)
 
 
 FIRESTORE_PERMISSION_DETAIL = (
