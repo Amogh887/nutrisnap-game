@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { requestApi } from '../apiClient';
+import CircleSelectModal from './CircleSelectModal';
 
-export default function AnalysisResults({ data, onReset, onSaveRecipe, savedRecipeIds }) {
+export default function AnalysisResults({ data, onReset, onSaveRecipe, savedRecipeIds, user, onRequireAuth, onPendingCookChange }) {
   const [expandedRecipes, setExpandedRecipes] = useState({});
   const [showAllIngredients, setShowAllIngredients] = useState(false);
   const [feedbackState, setFeedbackState] = useState({}); // { [recipeName]: '👍' | '👎' | 'too_spicy' etc }
+  const [cookRecipe, setCookRecipe] = useState(null);
 
   const handleFeedback = async (recipeName, type) => {
     setFeedbackState(prev => ({ ...prev, [recipeName]: type }));
@@ -141,6 +143,29 @@ export default function AnalysisResults({ data, onReset, onSaveRecipe, savedReci
                     }}
                   >
                     {savedRecipeIds[recipe.name] ? '❤️ Saved' : '🤍 Save'}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCookRecipe(recipe);
+                    }}
+                    style={{
+                      background: 'rgba(48, 209, 88, 0.12)',
+                      color: 'var(--green)',
+                      border: 'none',
+                      padding: '4px 12px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'all 0.2s',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    🏆 Cook for a Circle
                   </button>
                 </div>
               </div>
@@ -323,6 +348,17 @@ export default function AnalysisResults({ data, onReset, onSaveRecipe, savedReci
           );
         })}
       </div>
+
+      {cookRecipe && (
+        <CircleSelectModal
+          user={user}
+          recipe={cookRecipe}
+          detectedIngredients={data.detected_ingredients || []}
+          onClose={() => setCookRecipe(null)}
+          onRequireAuth={onRequireAuth}
+          onPendingCookChange={onPendingCookChange}
+        />
+      )}
     </div>
   );
 }

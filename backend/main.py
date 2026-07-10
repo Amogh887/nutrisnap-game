@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 
@@ -16,9 +16,13 @@ from google import genai
 from google.genai import types
 
 import firebase_admin
-from firebase_admin import credentials, auth, firestore
+from firebase_admin import credentials, firestore
 from google.api_core.exceptions import PermissionDenied as GooglePermissionDenied
 from google.api_core.exceptions import ServiceUnavailable as GoogleServiceUnavailable
+
+from deps import get_current_user, require_user, DEFAULT_PREFERENCES
+from game import router as game_router, init_game
+from photo_store import LocalPhotoStore
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / '.env')
@@ -70,12 +74,18 @@ if not firebase_admin._apps:
     })
 
 db = firestore.client()
-security = HTTPBearer(auto_error=False)
 
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key:
     raise RuntimeError("Missing GEMINI_API_KEY - get a free key at https://aistudio.google.com and add it to backend/.env")
 client = genai.Client(api_key=gemini_api_key)
+
+MEDIA_DIR = BASE_DIR / "media"
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+photo_store = LocalPhotoStore(MEDIA_DIR)
+init_game(db, client, photo_store)
+app.include_router(game_router)
+app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 
 FIRESTORE_PERMISSION_DETAIL = (
@@ -143,38 +153,6 @@ def _write_user_store(uid: str, data: dict) -> None:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-# ─── Default Preferences (for guests) ───────────────────────────────────────
-
-DEFAULT_PREFERENCES = {
-    "health_goal": "balanced",
-    "diet_type": "non-vegetarian",
-    "allergies": "none",
-    "cooking_time": "moderate",
-    "cuisine_preferences": "any",
-    "calorie_target": "not specified",
-    "fitness_goal": "general health"
-}
-
-
-# ─── Auth Helpers ────────────────────────────────────────────────────────────
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if not credentials:
-        return None
-    try:
-        decoded_token = auth.verify_id_token(credentials.credentials)
-        return decoded_token["uid"]
-    except Exception:
-        return None
-
-
-def require_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    uid = get_current_user(credentials)
-    if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return uid
 
 
 # ─── Preference Fetcher ──────────────────────────────────────────────────────

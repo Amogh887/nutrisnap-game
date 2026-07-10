@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import './styles/theme.css';
@@ -11,8 +11,21 @@ import PreferencesSurvey from './components/PreferencesSurvey';
 import SavedRecipes from './components/SavedRecipes';
 import History from './components/History';
 import Profile from './components/Profile';
+import Circles from './components/Circles';
+import CircleDetail from './components/CircleDetail';
 import AuthModal from './AuthModal';
 import { requestApi } from './apiClient';
+
+const PENDING_COOK_KEY = 'nutrisnap_pending_cook';
+
+const readPendingCook = () => {
+  try {
+    const raw = localStorage.getItem(PENDING_COOK_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -28,12 +41,46 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [savedRecipeIds, setSavedRecipeIds] = useState({});
 
+  const [activeCircleId, setActiveCircleId] = useState(null);
+  const [joinError, setJoinError] = useState('');
+  const [, setPendingCookVersion] = useState(0);
+  const joinCodeRef = useRef(null);
+  const pendingCook = readPendingCook();
+
+  const refreshPendingCook = () => setPendingCookVersion((v) => v + 1);
+
+  const openCircle = (id) => {
+    setActiveCircleId(id);
+    setCurrentView('circle');
+  };
+
+  const dismissPendingCook = () => {
+    if (window.confirm('Stop cooking this dish for the circle?')) {
+      localStorage.removeItem(PENDING_COOK_KEY);
+      refreshPendingCook();
+    }
+  };
+
   const steps = [
     { label: 'Analyzing image data...', icon: '🧠' },
     { label: 'Detecting raw ingredients...', icon: '🔍' },
     { label: 'Optimizing health scores...', icon: '🥗' },
     { label: 'Generating tailored recipes...', icon: '👨‍🍳' }
   ];
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('join');
+    if (!code) return;
+    joinCodeRef.current = code.toUpperCase();
+    params.delete('join');
+    const qs = params.toString();
+    const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+    window.history.replaceState({}, '', newUrl);
+    if (!auth.currentUser) {
+      setShowAuthModal(true);
+    }
+  }, []);
 
   // Listen for auth state changes
   useEffect(() => {
@@ -57,6 +104,31 @@ function App() {
           }
         } catch (err) {
           console.error("Failed to check onboarding status", err);
+        }
+
+        if (joinCodeRef.current) {
+          const code = joinCodeRef.current;
+          joinCodeRef.current = null;
+          try {
+            const token = await firebaseUser.getIdToken();
+            const res = await requestApi({
+              path: 'circles/join',
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ invite_code: code })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setShowAuthModal(false);
+              setActiveCircleId(data.id);
+              setCurrentView('circle');
+            } else {
+              setJoinError('Invalid invite code');
+            }
+          } catch (err) {
+            console.error('Failed to join circle from link', err);
+            setJoinError('Could not join circle. Please try again.');
+          }
         }
       }
     });
@@ -267,8 +339,56 @@ function App() {
             </div>
         </header>
 
+        {joinError && (
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem',
+            background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)',
+            color: 'var(--red)', padding: '10px 16px', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem'
+          }}>
+            <span>{joinError}</span>
+            <button
+              onClick={() => setJoinError('')}
+              style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {pendingCook && (
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem',
+            background: 'rgba(48, 209, 88, 0.1)', border: '1px solid rgba(48, 209, 88, 0.25)',
+            color: 'var(--text-primary)', padding: '10px 16px', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem'
+          }}>
+            <span
+              onClick={() => openCircle(pendingCook.circle_id)}
+              style={{ cursor: 'pointer', flex: 1 }}
+            >
+              🍳 You're cooking <strong>{pendingCook.recipe?.name}</strong> for {pendingCook.circle_name} —{' '}
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>Submit dish</span>
+            </span>
+            <button
+              onClick={dismissPendingCook}
+              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <section className="content-center">
-          {currentView === 'profile' ? (
+          {currentView === 'circles' ? (
+            <Circles user={user} onOpenCircle={openCircle} />
+          ) : currentView === 'circle' ? (
+            <CircleDetail
+              user={user}
+              circleId={activeCircleId}
+              onBack={() => setCurrentView('circles')}
+              pendingCook={pendingCook}
+              onPendingCookChange={refreshPendingCook}
+            />
+          ) : currentView === 'profile' ? (
             <Profile user={user} />
           ) : currentView === 'history' ? (
             <History user={user} />
@@ -331,11 +451,14 @@ function App() {
                   </span> to save recipes and get deep personalization.
                 </div>
               )}
-              <AnalysisResults 
-                data={result} 
-                onReset={() => setResult(null)} 
+              <AnalysisResults
+                data={result}
+                onReset={() => setResult(null)}
                 onSaveRecipe={handleSaveRecipe}
                 savedRecipeIds={savedRecipeIds}
+                user={user}
+                onRequireAuth={() => setShowAuthModal(true)}
+                onPendingCookChange={refreshPendingCook}
               />
             </div>
           )}

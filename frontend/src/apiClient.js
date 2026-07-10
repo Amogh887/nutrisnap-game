@@ -12,6 +12,14 @@ const getApiCandidates = (path) => {
   ];
 };
 
+export const resolveApiUrl = (path) => {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  const baseUrl = API_BASE_URL.replace(/\/$/, '');
+  const cleanPath = path.replace(/^\/+/, '');
+  return `${baseUrl}/${cleanPath}`;
+};
+
 export const requestApi = async ({ path, method = 'GET', headers = {}, body, signal }) => {
   const urls = getApiCandidates(path);
   let response = null;

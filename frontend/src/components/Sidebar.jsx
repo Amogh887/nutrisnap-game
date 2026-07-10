@@ -37,7 +37,20 @@ export default function Sidebar({ isOpen, onClose, user, onSignIn, onSignOut, on
           >
             🏠 Home
           </div>
-          <div 
+          <div
+            onClick={() => { onNavigate('circles'); onClose(); }}
+            style={{
+              padding: '0.8rem 1rem',
+              borderRadius: '14px',
+              background: (currentView === 'circles' || currentView === 'circle') ? 'rgba(255,255,255,0.05)' : 'transparent',
+              color: (currentView === 'circles' || currentView === 'circle') ? 'var(--text-primary)' : 'var(--text-secondary)',
+              marginBottom: '0.5rem',
+              cursor: 'pointer'
+            }}
+          >
+            🏆 Circles
+          </div>
+          <div
             onClick={() => { onNavigate('history'); onClose(); }}
             style={{ 
               padding: '0.8rem 1rem', 
