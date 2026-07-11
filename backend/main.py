@@ -22,6 +22,7 @@ from google.api_core.exceptions import ServiceUnavailable as GoogleServiceUnavai
 
 from deps import get_current_user, require_user, DEFAULT_PREFERENCES
 from game import router as game_router, init_game
+from game_logic import compute_points
 from photo_store import LocalPhotoStore
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -239,7 +240,13 @@ def build_prompt(prefs: dict) -> str:
     Also include a short explanation: Why the score is high or low for THIS user.
 
     ---
-    ### STEP 6: OUTPUT FORMAT
+    ### STEP 6: COMPETITION SCORING
+    Also rate each recipe on two 1-10 scales used by the cooking competition:
+    - difficulty (1-10): Objective difficulty of the recipe based on techniques, timing sensitivity, and coordinating multiple components.
+    - stretch (1-10): How far this dish sits outside THIS cook's comfort zone given their profile above — skill gap, unfamiliar cuisine vs their cuisine preferences, time vs their cooking time preference. An experienced cook making a staple of their favorite cuisine is 1-2; a beginner attempting an unfamiliar advanced dish is 8+.
+
+    ---
+    ### STEP 7: OUTPUT FORMAT
     Return ONLY valid JSON in the following structure:
     {{
       "detected_ingredients": [],
@@ -255,12 +262,15 @@ def build_prompt(prefs: dict) -> str:
             "calories_kcal": "",
             "protein_g": "",
             "carbs_g": "",
-            "fat_g": ""
+            "fat_g": "",
+            "fiber_g": ""
           }},
           "health_score": "",
           "health_explanation": "",
           "diet_tags": ["high-protein", "low-carb", "vegan"],
           "estimated_time_minutes": "",
+          "difficulty": 5,
+          "stretch": 5,
           "youtube_query": "specific search string for a recipe tutorial, e.g. 'how to make healthy grilled chicken breast'"
         }}
       ],
@@ -268,11 +278,11 @@ def build_prompt(prefs: dict) -> str:
     }}
 
     ---
-    ### STEP 7: RANKING
+    ### STEP 8: RANKING
     Sort recipes from most to least aligned with the user's health goal and preferences.
 
     ---
-    ### STEP 8: EDGE CASE HANDLING
+    ### STEP 9: EDGE CASE HANDLING
     - If ingredients are insufficient, suggest 2-3 missing ingredients to create viable recipes.
     - If the image is unclear, make best reasonable assumptions.
     - Always provide useful output even with limited ingredients.
@@ -282,6 +292,104 @@ def build_prompt(prefs: dict) -> str:
     Your response MUST be valid JSON only. No extra text, no explanations outside JSON.
     Personalization is critical — recipes must feel tailored to this specific user.
     """
+
+
+def build_recipe_prompt(dish_name: str, prefs: dict) -> str:
+    return f"""
+    You are NutriSnap AI, a nutrition and cooking assistant.
+
+    The user wants to cook this dish: "{dish_name}"
+
+    Create EXACTLY ONE healthy recipe for this dish, personalized to this user's profile:
+    - Health Goal: {prefs['health_goal']}
+    - Diet Type: {prefs['diet_type']}
+    - Allergies / Restrictions: {prefs['allergies']}
+    - Cooking Time Preference: {prefs['cooking_time']}
+    - Cuisine Preferences: {prefs['cuisine_preferences']}
+    - Calorie Target: {prefs['calorie_target']}
+    - Fitness Goal: {prefs['fitness_goal']}
+
+    IMPORTANT: If the user has allergies, NEVER include those ingredients.
+    If diet type is vegetarian or vegan, NEVER suggest meat or animal products.
+    Adjust portions and macros to match their calorie target and fitness goal.
+    Provide EXACT measurements for every ingredient.
+    Keep it MOBILE FRIENDLY: 1-2 short sentences for the description, one short sentence per instruction step.
+
+    Also rate this recipe on two 1-10 scales used by the cooking competition:
+    - difficulty (1-10): Objective difficulty of the recipe based on techniques, timing sensitivity, and coordinating multiple components.
+    - stretch (1-10): How far this dish sits outside THIS cook's comfort zone given their profile above — skill gap, unfamiliar cuisine vs their cuisine preferences, time vs their cooking time preference. An experienced cook making a staple of their favorite cuisine is 1-2; a beginner attempting an unfamiliar advanced dish is 8+.
+
+    Return ONLY valid JSON for a single recipe in EXACTLY this structure:
+    {{
+      "name": "",
+      "description": "",
+      "servings": "",
+      "ingredients_used": ["e.g., 2 eggs", "2 slices whole-grain bread"],
+      "additional_ingredients": ["exact quantities required"],
+      "instructions": ["step 1", "step 2"],
+      "nutrition": {{
+        "calories_kcal": "",
+        "protein_g": "",
+        "carbs_g": "",
+        "fat_g": "",
+        "fiber_g": ""
+      }},
+      "health_score": "",
+      "health_explanation": "",
+      "diet_tags": ["high-protein", "low-carb", "vegan"],
+      "estimated_time_minutes": "",
+      "difficulty": 5,
+      "stretch": 5,
+      "youtube_query": "specific search string for a recipe tutorial"
+    }}
+
+    Your response MUST be valid JSON only. No text outside the JSON object.
+    """
+
+
+def strip_json_fence(response_text: str) -> str:
+    text = response_text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text
+
+
+def enrich_youtube_thumbnails(recipes: list) -> None:
+    for recipe in recipes:
+        if not isinstance(recipe, dict):
+            continue
+        try:
+            query = recipe.get("youtube_query")
+            if query:
+                r = httpx.get(f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}", timeout=5.0)
+                video_ids = re.findall(r"watch\?v=([a-zA-Z0-9_-]{11})", r.text)
+                if video_ids:
+                    vid = video_ids[0]
+                    recipe["youtube_video_id"] = vid
+                    recipe["youtube_thumbnail"] = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+        except Exception:
+            pass
+
+
+def _coerce_score(value) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(10, n))
+
+
+def attach_points_estimate(recipes: list) -> None:
+    for recipe in recipes:
+        if not isinstance(recipe, dict):
+            continue
+        difficulty = _coerce_score(recipe.get("difficulty"))
+        stretch = _coerce_score(recipe.get("stretch"))
+        recipe["difficulty"] = difficulty
+        recipe["stretch"] = stretch
+        recipe["points_estimate"] = compute_points(difficulty, stretch)
 
 
 # ─── Test Endpoint ───────────────────────────────────────────────────────────
@@ -316,28 +424,11 @@ async def analyze_food(
             ),
         )
 
-        response_text = response.text.strip()
-        if response_text.startswith("```"):
-            response_text = response_text.split("```")[1]
-            if response_text.startswith("json"):
-                response_text = response_text[4:]
-        recipe_data = json.loads(response_text)
+        recipe_data = json.loads(strip_json_fence(response.text))
 
-        # Append true YouTube thumbnails and video IDs before sending to frontend
-        for recipe in recipe_data.get("recipes", []):
-            try:
-                query = recipe.get("youtube_query")
-                if query:
-                    # Search youtube and extract first valid video ID via regex to bypass unofficial API hurdles
-                    r = httpx.get(f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}", timeout=5.0)
-                    video_ids = re.findall(r"watch\?v=([a-zA-Z0-9_-]{11})", r.text)
-                    if video_ids:
-                        vid = video_ids[0]
-                        recipe["youtube_video_id"] = vid
-                        recipe["youtube_thumbnail"] = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
-            except Exception as e:
-                pass # Fail silently for this single recipe, but proceed with rendering
-
+        recipes = recipe_data.get("recipes", [])
+        enrich_youtube_thumbnails(recipes)
+        attach_points_estimate(recipes)
 
         ingredients = recipe_data.get("detected_ingredients", [])
         if len(ingredients) < 2:
@@ -373,6 +464,46 @@ async def analyze_food(
                     print(f"Could not save food history: {e}")
 
         return recipe_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"ERROR: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class GenerateRecipeBody(BaseModel):
+    dish_name: str
+
+
+@app.post("/api/generate-recipe")
+async def generate_recipe(body: GenerateRecipeBody, uid: str = Depends(require_user)):
+    dish_name = (body.dish_name or "").strip()
+    if not dish_name:
+        raise HTTPException(status_code=422, detail="Dish name is required")
+    if len(dish_name) > 80:
+        raise HTTPException(status_code=422, detail="Dish name must be 80 characters or fewer")
+
+    try:
+        prefs = get_user_preferences(uid)
+        prompt = build_recipe_prompt(dish_name, prefs)
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
+        )
+
+        recipe = json.loads(strip_json_fence(response.text))
+        recipes = recipe.get("recipes") if isinstance(recipe, dict) and "recipes" in recipe else [recipe]
+
+        enrich_youtube_thumbnails(recipes)
+        attach_points_estimate(recipes)
+
+        return {"recipes": recipes, "detected_ingredients": []}
 
     except HTTPException:
         raise
