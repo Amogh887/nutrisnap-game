@@ -1,17 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { requestApi } from '../apiClient';
+import Mascot from './Mascot';
+import { CirclesIcon } from './icons';
 
-const inputStyle = {
-  width: '100%', padding: '13px 16px', borderRadius: '14px',
-  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
-  color: 'var(--text-primary)', fontSize: '1rem', outline: 'none',
-  transition: 'border-color 0.2s', boxSizing: 'border-box'
-};
-
-const roleColors = {
-  owner: { bg: 'rgba(255, 214, 10, 0.15)', color: '#ffd60a' },
-  admin: { bg: 'rgba(10, 132, 255, 0.15)', color: 'var(--blue)' },
-  member: { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }
+const roleClass = {
+  owner: 'role-badge--owner',
+  admin: 'role-badge--admin',
+  member: 'role-badge--member',
 };
 
 export default function Circles({ user, onOpenCircle }) {
@@ -121,105 +116,89 @@ export default function Circles({ user, onOpenCircle }) {
 
   if (!user) {
     return (
-      <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-secondary)' }}>
-        <h2>Sign in to join Circles</h2>
-        <p>Compete with friends in weekly cooking challenges.</p>
+      <div className="gate">
+        <Mascot pose="wave" size={132} animate />
+        <h2>Join a circle</h2>
+        <p>Sign in to cook against your friends in weekly challenges.</p>
       </div>
     );
   }
 
   return (
-    <div className="fade-in" style={{ width: '100%', maxWidth: '800px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '2rem', letterSpacing: '-0.5px' }}>
-        Circles
-      </h2>
+    <div className="screen">
+      <h1 className="screen-title">Circles</h1>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
-        <div className="premium-card">
-          <h3 style={{ fontSize: '1.1rem', margin: '0 0 1rem 0' }}>Create a circle</h3>
+      <div className="circles-actions">
+        <div className="clay-card stack" style={{ gap: '12px' }}>
+          <h3 style={{ fontSize: 'var(--text-lg)' }}>Create a circle</h3>
           <input
             type="text"
+            className="clay-input"
             placeholder="Circle name"
+            aria-label="Circle name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            style={{ ...inputStyle, marginBottom: '1rem' }}
-            onFocus={(e) => e.target.style.borderColor = 'var(--blue)'}
-            onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
           />
           <button
-            className="rounded-btn primary"
+            className="clay-btn clay-btn--primary"
             onClick={handleCreate}
             disabled={creating || !name.trim()}
-            style={{ width: '100%', padding: '0.8rem' }}
+            style={{ width: '100%' }}
           >
             {creating ? 'Creating...' : 'Create'}
           </button>
-          {createError && (
-            <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginTop: '0.8rem' }}>{createError}</div>
-          )}
+          {createError && <div className="muted" style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'var(--text-sm)' }}>{createError}</div>}
         </div>
 
-        <div className="premium-card">
-          <h3 style={{ fontSize: '1.1rem', margin: '0 0 1rem 0' }}>Join a circle</h3>
+        <div className="clay-card stack" style={{ gap: '12px' }}>
+          <h3 style={{ fontSize: 'var(--text-lg)' }}>Join a circle</h3>
           <input
             type="text"
+            className="clay-input"
             placeholder="Invite code"
+            aria-label="Invite code"
             value={inviteCode}
             onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-            style={{ ...inputStyle, marginBottom: '1rem', letterSpacing: '2px', textTransform: 'uppercase' }}
-            onFocus={(e) => e.target.style.borderColor = 'var(--blue)'}
-            onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+            style={{ letterSpacing: '2px', textTransform: 'uppercase' }}
           />
           <button
-            className="rounded-btn"
+            className="clay-btn clay-btn--cta"
             onClick={handleJoin}
             disabled={joining || !inviteCode.trim()}
-            style={{ width: '100%', padding: '0.8rem' }}
+            style={{ width: '100%' }}
           >
             {joining ? 'Joining...' : 'Join'}
           </button>
-          {joinError && (
-            <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginTop: '0.8rem' }}>{joinError}</div>
-          )}
+          {joinError && <div className="muted" style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'var(--text-sm)' }}>{joinError}</div>}
         </div>
       </div>
 
       {isLoading ? (
-        <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2rem' }}>Loading circles...</div>
+        <div className="empty-state"><span className="spinner" /><p>Loading circles...</p></div>
       ) : error ? (
-        <div style={{ color: 'var(--red)', textAlign: 'center', marginTop: '2rem' }}>{error}</div>
+        <div className="banner banner--error"><div className="banner__body">{error}</div></div>
       ) : circles.length === 0 ? (
-        <div style={{ textAlign: 'center', marginTop: '2rem', color: 'var(--text-secondary)' }}>
-          <p>You are not in any circles yet. Create one or join with an invite code.</p>
+        <div className="empty-state">
+          <Mascot pose="happy" size={116} />
+          <h2>No circles yet</h2>
+          <p>Create one above or join with an invite code from a friend.</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {circles.map((circle) => {
-            const role = roleColors[circle.role] || roleColors.member;
-            return (
-              <div
-                key={circle.id}
-                onClick={() => onOpenCircle(circle.id)}
-                className="premium-card"
-                style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}
-              >
-                <div>
-                  <h3 style={{ fontSize: '1.3rem', margin: '0 0 0.4rem 0' }}>{circle.name}</h3>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    {circle.member_count} {circle.member_count === 1 ? 'member' : 'members'}
-                  </div>
+        <div className="stack">
+          {circles.map((circle) => (
+            <div key={circle.id} onClick={() => onOpenCircle(circle.id)} className="clay-card circle-card" role="button" tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') onOpenCircle(circle.id); }}>
+              <div style={{ minWidth: 0 }}>
+                <h3 className="circle-card__title">{circle.name}</h3>
+                <div className="muted" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <CirclesIcon size={16} /> {circle.member_count} {circle.member_count === 1 ? 'member' : 'members'}
                 </div>
-                <span style={{
-                  padding: '4px 12px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
-                  textTransform: 'capitalize', background: role.bg, color: role.color
-                }}>
-                  {circle.role}
-                </span>
               </div>
-            );
-          })}
+              <span className={`role-badge ${roleClass[circle.role] || roleClass.member}`}>{circle.role}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

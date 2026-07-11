@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
 import { requestApi } from '../apiClient';
+import { CloseIcon, CheckIcon, AlertIcon, ArrowLeftIcon } from './icons';
 
-export default function PreferencesSurvey({ isOpen, onClose, user }) {
+export default function PreferencesSurvey({
+  isOpen,
+  onClose,
+  user,
+  variant = 'sheet',
+  onSaved,
+  onBack,
+  stepIndex = 1,
+  stepCount = 2,
+}) {
+  const isPage = variant === 'page';
   const [preferences, setPreferences] = useState({
     health_goal: 'balanced',
     diet_type: 'non-vegetarian',
@@ -15,13 +26,13 @@ export default function PreferencesSurvey({ isOpen, onClose, user }) {
     has_onboarded: false
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [saveStatus, setSaveStatus] = useState(''); // 'saving', 'saved', 'error'
+  const [saveStatus, setSaveStatus] = useState('');
 
   useEffect(() => {
-    if (isOpen && user) {
+    if ((isPage || isOpen) && user) {
       fetchPreferences();
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, isPage]);
 
   const fetchPreferences = async () => {
     try {
@@ -32,7 +43,6 @@ export default function PreferencesSurvey({ isOpen, onClose, user }) {
       });
       if (res.ok) {
         const data = await res.json();
-        // Merge with defaults in case of new fields
         setPreferences(prev => ({ ...prev, ...data }));
       }
     } catch (err) {
@@ -55,10 +65,14 @@ export default function PreferencesSurvey({ isOpen, onClose, user }) {
         },
         body: JSON.stringify({ ...preferences, has_onboarded: true })
       });
-      
+
       if (res.ok) {
         setSaveStatus('saved');
-        setTimeout(() => onClose(), 1000);
+        if (isPage) {
+          if (onSaved) onSaved();
+        } else {
+          setTimeout(() => onClose(), 1000);
+        }
       } else {
         setSaveStatus('error');
       }
@@ -74,127 +88,136 @@ export default function PreferencesSurvey({ isOpen, onClose, user }) {
     const isSelected = preferences[field] === value;
     return (
       <button
+        type="button"
+        className={`opt-btn ${isSelected ? 'is-selected' : ''}`}
+        aria-pressed={isSelected}
         onClick={() => setPreferences({ ...preferences, [field]: value })}
-        style={{
-          padding: '6px 12px',
-          borderRadius: '16px',
-          border: '1px solid',
-          borderColor: isSelected ? 'var(--blue)' : 'rgba(255,255,255,0.1)',
-          background: isSelected ? 'rgba(10, 132, 255, 0.1)' : 'transparent',
-          color: isSelected ? 'var(--blue)' : 'var(--text-secondary)',
-          cursor: 'pointer',
-          fontSize: '0.8rem',
-          transition: 'all 0.2s',
-          whiteSpace: 'nowrap'
-        }}
       >
         {label}
       </button>
     );
   };
 
+  const form = (
+    <div className="form-grid" style={{ gap: '18px' }}>
+      <div className="pref-group">
+        <span className="field-label">Budget per meal</span>
+        <div className="row-wrap">
+          <OptionButton label="$ Cheap" field="cost_preference" value="$" />
+          <OptionButton label="$$ Moderate" field="cost_preference" value="$$" />
+          <OptionButton label="$$$ Premium" field="cost_preference" value="$$$" />
+        </div>
+      </div>
+
+      <div className="pref-group">
+        <span className="field-label">Cooking time</span>
+        <div className="row-wrap">
+          <OptionButton label="Under 15 min" field="cooking_time" value="fast" />
+          <OptionButton label="Under 30 min" field="cooking_time" value="moderate" />
+          <OptionButton label="Any time" field="cooking_time" value="any" />
+        </div>
+      </div>
+
+      <div className="pref-group">
+        <span className="field-label">Spice level</span>
+        <div className="row-wrap">
+          <OptionButton label="Mild" field="spice_level" value="Mild" />
+          <OptionButton label="Medium" field="spice_level" value="Medium" />
+          <OptionButton label="Hot" field="spice_level" value="Hot" />
+        </div>
+      </div>
+
+      <div className="pref-group">
+        <span className="field-label">Diet type</span>
+        <div className="row-wrap">
+          <OptionButton label="Anything" field="diet_type" value="non-vegetarian" />
+          <OptionButton label="Vegetarian" field="diet_type" value="vegetarian" />
+          <OptionButton label="Vegan" field="diet_type" value="vegan" />
+          <OptionButton label="Keto" field="diet_type" value="keto" />
+        </div>
+        <input
+          type="text"
+          className="clay-input"
+          placeholder="Or a custom diet (e.g. Paleo, Halal)"
+          aria-label="Custom diet type"
+          value={['non-vegetarian', 'vegetarian', 'vegan', 'keto'].includes(preferences.diet_type) ? '' : preferences.diet_type}
+          onChange={(e) => setPreferences({ ...preferences, diet_type: e.target.value || 'non-vegetarian' })}
+        />
+      </div>
+
+      <div className="pref-group">
+        <span className="field-label">Cuisines and likes (optional)</span>
+        <input
+          type="text"
+          className="clay-input"
+          placeholder="e.g. Mexican, extra garlic"
+          aria-label="Cuisine preferences"
+          value={preferences.cuisine_preferences === 'any' ? '' : preferences.cuisine_preferences}
+          onChange={(e) => setPreferences({ ...preferences, cuisine_preferences: e.target.value || 'any' })}
+        />
+      </div>
+    </div>
+  );
+
+  if (isPage) {
+    return (
+      <div className="onboarding">
+        <div className="onboarding__inner fade-in">
+          <div className="onboarding__progress" aria-hidden="true">
+            {Array.from({ length: stepCount }, (_, i) => (
+              <span key={i} className={`onboarding__dot ${i <= stepIndex ? 'is-active' : ''}`} />
+            ))}
+          </div>
+
+          <div className="onboarding__head">
+            <h1>How do you like to eat?</h1>
+            <p>We tailor every recipe to your taste. You can change this anytime.</p>
+          </div>
+
+          {form}
+
+          <div className="onboarding__actions">
+            <button onClick={handleSave} disabled={isLoading} className="clay-btn clay-btn--primary" style={{ width: '100%' }}>
+              {isLoading ? 'Saving...' : 'Start cooking'}
+            </button>
+            {onBack && (
+              <button onClick={onBack} className="clay-btn clay-btn--ghost" style={{ width: '100%' }}>
+                <ArrowLeftIcon size={18} /> Back
+              </button>
+            )}
+            {saveStatus === 'error' && (
+              <div style={{ textAlign: 'center' }}>
+                <span className="pill pill--peach"><AlertIcon size={15} /> Could not save, try again</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
-      <div 
-        className={`sidebar-overlay ${isOpen ? 'open' : ''}`} 
-        onClick={onClose}
-      />
-      <div className={`right-drawer ${isOpen ? 'open' : ''}`}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Personalize</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+      <div className={`overlay ${isOpen ? 'is-open' : ''}`} onClick={onClose} />
+      <div className={`sheet ${isOpen ? 'is-open' : ''}`} role="dialog" aria-label="Taste preferences" aria-hidden={!isOpen}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <h2 style={{ fontSize: 'var(--text-2xl)' }}>Preferences</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><CloseIcon size={20} /></button>
         </div>
-        
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '1rem', lineHeight: 1.2 }}>
-          Tell us how you eat. AI will use this to generate perfectly tailored recipes.
+
+        <p className="muted" style={{ fontWeight: 500, fontSize: 'var(--text-sm)', lineHeight: 1.4, marginBottom: '16px' }}>
+          Tell us how you eat and every recipe gets tailored to your taste.
         </p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-          
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-secondary)' }}>Budget per Meal</label>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <OptionButton label="$ (Cheap)" field="cost_preference" value="$" />
-              <OptionButton label="$$ (Moderate)" field="cost_preference" value="$$" />
-              <OptionButton label="$$$ (Premium)" field="cost_preference" value="$$$" />
-            </div>
-          </div>
+        {form}
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-secondary)' }}>Cooking Time</label>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <OptionButton label="< 15 mins (Fast)" field="cooking_time" value="fast" />
-              <OptionButton label="< 30 mins" field="cooking_time" value="moderate" />
-              <OptionButton label="Any time" field="cooking_time" value="any" />
-            </div>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-secondary)' }}>Spice Level</label>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <OptionButton label="Mild" field="spice_level" value="Mild" />
-              <OptionButton label="Medium" field="spice_level" value="Medium" />
-              <OptionButton label="Hot 🌶️" field="spice_level" value="Hot" />
-            </div>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-secondary)' }}>Diet Type</label>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-              <OptionButton label="Anything" field="diet_type" value="non-vegetarian" />
-              <OptionButton label="Vegetarian" field="diet_type" value="vegetarian" />
-              <OptionButton label="Vegan" field="diet_type" value="vegan" />
-              <OptionButton label="Keto" field="diet_type" value="keto" />
-            </div>
-            <input 
-              type="text" 
-              placeholder="Or enter custom diet type... (e.g. Paleo, Halal)"
-              value={['non-vegetarian', 'vegetarian', 'vegan', 'keto'].includes(preferences.diet_type) ? '' : preferences.diet_type}
-              onChange={(e) => setPreferences({...preferences, diet_type: e.target.value || 'non-vegetarian'})}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '12px',
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
-                color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none',
-                transition: 'border-color 0.2s', boxSizing: 'border-box'
-              }}
-              onFocus={(e) => e.target.style.borderColor = 'var(--blue)'}
-              onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-            />
-          </div>
-          
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-secondary)' }}>Specific Cuisines / Likes (Optional)</label>
-            <input 
-              type="text" 
-              placeholder="e.g. Mexican, extra garlic"
-              value={preferences.cuisine_preferences === 'any' ? '' : preferences.cuisine_preferences}
-              onChange={(e) => setPreferences({...preferences, cuisine_preferences: e.target.value || 'any'})}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '12px',
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
-                color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none',
-                transition: 'border-color 0.2s', boxSizing: 'border-box'
-              }}
-              onFocus={(e) => e.target.style.borderColor = 'var(--blue)'}
-              onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-            />
-          </div>
-
-        </div>
-
-        <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'stretch' }}>
-          <button 
-            onClick={handleSave} 
-            disabled={isLoading}
-            className="rounded-btn primary"
-            style={{ width: '100%', padding: '0.8rem' }}
-          >
-            {isLoading ? 'Saving...' : 'Save Preferences'}
+        <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button onClick={handleSave} disabled={isLoading} className="clay-btn clay-btn--primary" style={{ width: '100%' }}>
+            {isLoading ? 'Saving...' : 'Save preferences'}
           </button>
-          <div style={{ textAlign: 'center', height: '16px' }}>
-            {saveStatus === 'saved' && <span style={{ color: 'var(--green)', fontSize: '0.9rem' }}>Saved efficiently!</span>}
-            {saveStatus === 'error' && <span style={{ color: 'var(--red)', fontSize: '0.9rem' }}>Error saving</span>}
+          <div style={{ textAlign: 'center', minHeight: '20px' }}>
+            {saveStatus === 'saved' && <span className="pill pill--mint"><CheckIcon size={15} /> Saved</span>}
+            {saveStatus === 'error' && <span className="pill pill--peach"><AlertIcon size={15} /> Error saving</span>}
           </div>
         </div>
       </div>

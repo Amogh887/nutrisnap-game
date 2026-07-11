@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { requestApi } from '../apiClient';
+import Mascot from './Mascot';
+import { StarIcon, ClockIcon, HeartFilledIcon } from './icons';
 
 export default function SavedRecipes({ user, onUnsave }) {
   const [recipes, setRecipes] = useState([]);
@@ -51,84 +53,69 @@ export default function SavedRecipes({ user, onUnsave }) {
     }
   };
 
-  if (isLoading) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2rem' }}>Loading recipes...</div>;
-  }
-
-  if (error) {
-    return <div style={{ color: 'var(--red)', textAlign: 'center', marginTop: '2rem' }}>{error}</div>;
-  }
-
   if (!user) {
     return (
-      <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-secondary)' }}>
-        <h2>Sign in to view your saved recipes</h2>
-        <p>Your culinary collection awaits.</p>
+      <div className="gate">
+        <Mascot pose="happy" size={132} animate />
+        <h2>Saved recipes</h2>
+        <p>Sign in to keep your favourite recipes in one place.</p>
       </div>
     );
   }
 
+  if (isLoading) {
+    return <div className="empty-state"><span className="spinner" /><p>Loading recipes...</p></div>;
+  }
+
+  if (error) {
+    return <div className="banner banner--error"><div className="banner__body">{error}</div></div>;
+  }
+
   if (recipes.length === 0) {
     return (
-      <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-secondary)' }}>
+      <div className="empty-state">
+        <Mascot pose="cheer" size={132} />
         <h2>No saved recipes yet</h2>
-        <p>When you analyze a meal, click the heart icon to save recipes here!</p>
+        <p>Tap the heart on any recipe to keep it here for later.</p>
       </div>
     );
   }
 
   return (
-    <div className="fade-in" style={{ width: '100%', maxWidth: '800px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '2rem', letterSpacing: '-0.5px' }}>
-        Saved Recipes
-      </h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="screen">
+      <h1 className="screen-title">Saved recipes</h1>
+      <div className="stack">
         {recipes.map(recipe => (
-          <div key={recipe.id} className="premium-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.4rem', margin: 0 }}>{recipe.name}</h3>
-              <button 
-                onClick={() => handleUnsave(recipe.id)}
-                style={{ 
-                  background: 'rgba(255, 69, 58, 0.1)', 
-                  border: 'none', 
-                  color: 'var(--red)', 
-                  padding: '8px 16px', 
-                  borderRadius: '20px', 
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '0.9rem'
-                }}
-              >
-                Unsave
+          <div key={recipe.id} className="clay-card stack">
+            <div className="results-head">
+              <h3 style={{ fontSize: 'var(--text-xl)' }}>{recipe.name}</h3>
+              <button className="chip-action is-active" onClick={() => handleUnsave(recipe.id)}>
+                <HeartFilledIcon size={18} /> Unsave
               </button>
             </div>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
-              {recipe.description}
-            </p>
-            
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-              <span style={{ padding: '6px 12px', background: 'rgba(48, 209, 88, 0.15)', color: 'var(--green)', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600 }}>
-                Score: {recipe.health_score}/10
-              </span>
-              <span style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', fontSize: '0.8rem' }}>
-                ⏱ {recipe.estimated_time_minutes} mins
-              </span>
+            <p className="muted" style={{ fontWeight: 600, lineHeight: 1.5 }}>{recipe.description}</p>
+
+            <div className="row-wrap">
+              <span className="pill pill--mint"><StarIcon size={15} /> {recipe.health_score}/10</span>
+              <span className="pill pill--peach"><ClockIcon size={15} /> {recipe.estimated_time_minutes} min</span>
               {recipe.diet_tags?.map(tag => (
-                <span key={tag} style={{ padding: '6px 12px', background: 'rgba(10, 132, 255, 0.15)', color: 'var(--blue)', borderRadius: '12px', fontSize: '0.8rem', textTransform: 'capitalize' }}>
-                  {tag}
-                </span>
+                <span key={tag} className="pill pill--blue" style={{ textTransform: 'capitalize' }}>{tag}</span>
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              {recipe.ingredients_used?.map(ing => (
-                <span key={ing} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>• {ing}</span>
-              ))}
-              {recipe.additional_ingredients?.map(ing => (
-                <span key={ing} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>• {ing}</span>
-              ))}
-            </div>
+            {(recipe.ingredients_used?.length || recipe.additional_ingredients?.length) ? (
+              <div className="stack" style={{ gap: '8px' }}>
+                <span className="section-label">Ingredients</span>
+                <div className="row-wrap" style={{ gap: '6px' }}>
+                  {recipe.ingredients_used?.map(ing => (
+                    <span key={ing} className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>• {ing}</span>
+                  ))}
+                  {recipe.additional_ingredients?.map(ing => (
+                    <span key={ing} className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>• {ing}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ))}
       </div>

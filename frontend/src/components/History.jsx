@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { requestApi } from '../apiClient';
+import Mascot from './Mascot';
+import { ClockIcon, UtensilsIcon } from './icons';
 
 export default function History({ user }) {
   const [history, setHistory] = useState([]);
@@ -36,40 +38,40 @@ export default function History({ user }) {
     }
   };
 
-  if (isLoading) {
-    return <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2rem' }}>Loading history...</div>;
-  }
-
-  if (error) {
-    return <div style={{ color: 'var(--red)', textAlign: 'center', marginTop: '2rem' }}>{error}</div>;
-  }
-
   if (!user) {
     return (
-      <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-secondary)' }}>
-        <h2>Sign in to view your history</h2>
-        <p>Keep track of all your meal analyses here.</p>
+      <div className="gate">
+        <Mascot pose="happy" size={132} animate />
+        <h2>Your snap history</h2>
+        <p>Sign in to keep track of every meal you have analyzed.</p>
       </div>
     );
   }
 
+  if (isLoading) {
+    return <div className="empty-state"><span className="spinner" /><p>Loading history...</p></div>;
+  }
+
+  if (error) {
+    return <div className="banner banner--error"><div className="banner__body">{error}</div></div>;
+  }
+
   if (history.length === 0) {
     return (
-      <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-secondary)' }}>
+      <div className="empty-state">
+        <Mascot pose="happy" size={132} />
         <h2>No history yet</h2>
-        <p>Upload a food photo to start building your history!</p>
+        <p>Snap a food photo and your analyses will show up here.</p>
       </div>
     );
   }
 
   return (
-    <div className="fade-in" style={{ width: '100%', maxWidth: '800px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '2rem', letterSpacing: '-0.5px' }}>
-        Analysis History
-      </h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="screen">
+      <h1 className="screen-title">Snap history</h1>
+      <div className="stack">
         {history.map((entry, idx) => {
-          let dateStr = "Unknown Date";
+          let dateStr = "Unknown date";
           if (entry.analyzed_at) {
             if (entry.analyzed_at._seconds) {
               dateStr = new Date(entry.analyzed_at._seconds * 1000).toLocaleString();
@@ -77,26 +79,32 @@ export default function History({ user }) {
               dateStr = new Date(entry.analyzed_at).toLocaleString();
             }
           }
+          const ingredients = entry.detected_ingredients || [];
+          const recipes = entry.recipes_generated || [];
           return (
-            <div key={entry.id || idx} className="premium-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-primary)' }}>{dateStr}</h3>
+            <div key={entry.id || idx} className="clay-card stack">
+              <h3 style={{ fontSize: 'var(--text-lg)', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <ClockIcon size={18} /> {dateStr}
+              </h3>
+
+              <div className="stack" style={{ gap: '8px' }}>
+                <span className="section-label">Detected ingredients</span>
+                {ingredients.length ? (
+                  <div className="row-wrap">
+                    {ingredients.map((ing, i) => <span key={i} className="ingredient-chip">{ing}</span>)}
+                  </div>
+                ) : <span className="muted" style={{ fontWeight: 600 }}>None available</span>}
               </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Detected Ingredients</div>
-                  <div style={{ color: 'var(--text-primary)' }}>
-                    {(entry.detected_ingredients || []).join(', ') || 'None available'}
+
+              <div className="stack" style={{ gap: '8px' }}>
+                <span className="section-label">Recipes generated</span>
+                {recipes.length ? (
+                  <div className="row-wrap">
+                    {recipes.map((r, i) => (
+                      <span key={i} className="pill pill--blue"><UtensilsIcon size={15} /> {r}</span>
+                    ))}
                   </div>
-                </div>
-                
-                <div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Recipes Generated</div>
-                  <div style={{ color: 'var(--blue)' }}>
-                    {(entry.recipes_generated || []).join(', ') || 'None available'}
-                  </div>
-                </div>
+                ) : <span className="muted" style={{ fontWeight: 600 }}>None available</span>}
               </div>
             </div>
           );

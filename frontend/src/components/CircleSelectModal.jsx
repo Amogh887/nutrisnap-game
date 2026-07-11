@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { requestApi } from '../apiClient';
+import { CloseIcon, LockIcon, CirclesIcon } from './icons';
 
 const PENDING_COOK_KEY = 'nutrisnap_pending_cook';
 
-export default function CircleSelectModal({ user, recipe, detectedIngredients, onClose, onRequireAuth, onPendingCookChange }) {
+export default function CircleSelectModal({ user, recipe, detectedIngredients, onClose, onRequireAuth, onPendingCookChange, onSubmitNow, onCookFirst }) {
   const [circles, setCircles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -52,87 +53,49 @@ export default function CircleSelectModal({ user, recipe, detectedIngredients, o
 
   return (
     <>
-      <div
-        className="sidebar-overlay open"
-        onClick={onClose}
-        style={{ backdropFilter: 'blur(8px)', zIndex: 1000 }}
-      />
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: '100%', maxWidth: '420px', zIndex: 1001, padding: '1rem'
-      }}>
-        <div className="premium-card fade-in" style={{ padding: '2rem', position: 'relative', maxHeight: '85vh', overflowY: 'auto' }}>
-          <button
-            onClick={onClose}
-            style={{
-              position: 'absolute', top: '1.2rem', right: '1.2rem',
-              background: 'rgba(255,255,255,0.05)', border: 'none',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              width: '32px', height: '32px', borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem'
-            }}
-          >
-            ✕
+      <div className="overlay is-open" onClick={onClose} />
+      <div className="modal-shell">
+        <div className="clay-card modal-card fade-in">
+          <button className="icon-btn modal-close" onClick={onClose} aria-label="Close">
+            <CloseIcon size={20} />
           </button>
 
           {confirmation ? (
-            <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-              <div style={{ fontSize: '3rem' }}>🔒</div>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, margin: '0.6rem 0' }}>Locked in</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
-                Cook it, then submit a photo in {confirmation}.
-              </p>
-              <button className="rounded-btn primary" onClick={onClose} style={{ width: '100%', padding: '0.9rem' }}>
-                Got it
-              </button>
+            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+              <span className="winner-crest__icon">
+                <LockIcon size={28} />
+              </span>
+              <h2>Locked in</h2>
+              <p className="muted" style={{ fontWeight: 600 }}>Cook it, then submit a photo in {confirmation}.</p>
+              <button className="clay-btn clay-btn--primary" onClick={onSubmitNow} style={{ width: '100%' }}>Submit photo now</button>
+              <button className="clay-btn clay-btn--ghost" onClick={onCookFirst} style={{ width: '100%' }}>I&apos;ll cook it first</button>
             </div>
           ) : !user ? (
-            <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, margin: '0 0 0.5rem 0' }}>Sign in to compete</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                Sign in to cook this dish for one of your circles.
-              </p>
-              <button
-                className="rounded-btn primary"
-                onClick={() => { onClose(); onRequireAuth(); }}
-                style={{ width: '100%', padding: '0.9rem' }}
-              >
-                Sign In
-              </button>
+            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+              <h2>Sign in to compete</h2>
+              <p className="muted" style={{ fontWeight: 600 }}>Sign in to cook this dish for one of your circles.</p>
+              <button className="clay-btn clay-btn--primary" onClick={() => { onClose(); onRequireAuth(); }} style={{ width: '100%' }}>Sign in</button>
             </div>
           ) : (
             <>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: '0 0 0.3rem 0', letterSpacing: '-0.5px' }}>
-                Cook for a circle
-              </h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-                {recipe?.name}
-              </p>
+              <h2>Cook for a circle</h2>
+              <p className="muted" style={{ fontWeight: 600, marginBottom: '16px' }}>{recipe?.name}</p>
 
               {isLoading ? (
-                <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '1.5rem 0' }}>Loading circles...</div>
+                <div className="empty-state"><span className="spinner" /><p>Loading circles...</p></div>
               ) : error ? (
-                <div style={{ color: 'var(--red)', textAlign: 'center', padding: '1rem 0' }}>{error}</div>
+                <div className="banner banner--error"><div className="banner__body">{error}</div></div>
               ) : circles.length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '1rem 0', lineHeight: 1.5 }}>
+                <p className="muted" style={{ fontWeight: 600, textAlign: 'center', lineHeight: 1.5 }}>
                   You are not in any circles yet. Head to the Circles tab to create or join one.
-                </div>
+                </p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <div className="stack" style={{ gap: '10px' }}>
                   {circles.map((circle) => (
-                    <button
-                      key={circle.id}
-                      onClick={() => handlePick(circle)}
-                      style={{
-                        width: '100%', padding: '1rem', borderRadius: '14px',
-                        background: 'var(--bg-tertiary)', border: '1px solid rgba(255,255,255,0.05)',
-                        color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem'
-                      }}
-                    >
-                      <span style={{ fontWeight: 600 }}>{circle.name}</span>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                        {circle.member_count} {circle.member_count === 1 ? 'member' : 'members'}
+                    <button key={circle.id} className="circle-pick" onClick={() => handlePick(circle)}>
+                      <span>{circle.name}</span>
+                      <span className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-sm)', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                        <CirclesIcon size={15} /> {circle.member_count}
                       </span>
                     </button>
                   ))}

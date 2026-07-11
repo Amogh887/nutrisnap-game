@@ -1,19 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import './styles/theme.css';
 import './styles/layout.css';
+import './App.css';
 
-import Sidebar from './components/Sidebar';
+import BottomNav from './components/BottomNav';
+import Mascot from './components/Mascot';
 import UploadCard from './components/UploadCard';
+import CustomDishInput from './components/CustomDishInput';
 import AnalysisResults from './components/AnalysisResults';
 import PreferencesSurvey from './components/PreferencesSurvey';
+import OnboardingFlow from './components/OnboardingFlow';
 import SavedRecipes from './components/SavedRecipes';
 import History from './components/History';
 import Profile from './components/Profile';
 import Circles from './components/Circles';
 import CircleDetail from './components/CircleDetail';
-import AuthModal from './AuthModal';
+import SubmitDish from './components/SubmitDish';
+import AuthScreen from './AuthScreen';
+import {
+  SettingsIcon,
+  CloseIcon,
+  UtensilsIcon,
+  ChevronRightIcon,
+  LogOutIcon,
+} from './components/icons';
 import { requestApi } from './apiClient';
 
 const PENDING_COOK_KEY = 'nutrisnap_pending_cook';
@@ -28,26 +40,36 @@ const readPendingCook = () => {
 };
 
 function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [authResolved, setAuthResolved] = useState(false);
+  const [user, setUser] = useState(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
+
+  const [currentView, setCurrentView] = useState('circles');
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanMode, setScanMode] = useState('photo');
+
   const [isLoading, setIsLoading] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [currentView, setCurrentView] = useState('home');
 
-  // Auth state
-  const [user, setUser] = useState(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [customLoading, setCustomLoading] = useState(false);
+  const [customError, setCustomError] = useState(null);
+
   const [savedRecipeIds, setSavedRecipeIds] = useState({});
 
   const [activeCircleId, setActiveCircleId] = useState(null);
   const [joinError, setJoinError] = useState('');
   const [, setPendingCookVersion] = useState(0);
+  const [scanSubmit, setScanSubmit] = useState(null);
+  const [autoOpenSubmit, setAutoOpenSubmit] = useState(false);
+  const scanSubmitScoredRef = useRef(false);
   const joinCodeRef = useRef(null);
   const pendingCook = readPendingCook();
 
   const refreshPendingCook = () => setPendingCookVersion((v) => v + 1);
+  const clearAutoSubmit = useCallback(() => setAutoOpenSubmit(false), []);
 
   const openCircle = (id) => {
     setActiveCircleId(id);
@@ -62,10 +84,10 @@ function App() {
   };
 
   const steps = [
-    { label: 'Analyzing image data...', icon: '🧠' },
-    { label: 'Detecting raw ingredients...', icon: '🔍' },
-    { label: 'Optimizing health scores...', icon: '🥗' },
-    { label: 'Generating tailored recipes...', icon: '👨‍🍳' }
+    { label: 'Reading your photo', icon: 'analyze' },
+    { label: 'Spotting the ingredients', icon: 'detect' },
+    { label: 'Scoring the health points', icon: 'score' },
+    { label: 'Cooking up recipes', icon: 'recipes' },
   ];
 
   useEffect(() => {
@@ -77,58 +99,54 @@ function App() {
     const qs = params.toString();
     const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
     window.history.replaceState({}, '', newUrl);
-    if (!auth.currentUser) {
-      setShowAuthModal(true);
-    }
   }, []);
 
-  // Listen for auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
-      if (firebaseUser) {
-        // Check if user has completed survey
+      if (!firebaseUser) {
+        setNeedsOnboarding(false);
+        setAuthResolved(true);
+        return;
+      }
+
+      try {
+        const token = await firebaseUser.getIdToken();
+        const res = await requestApi({
+          path: 'preferences',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const prefs = await res.json();
+          setNeedsOnboarding(prefs.cuisine_preferences === 'any' || !prefs.has_onboarded);
+        }
+      } catch (err) {
+        console.error("Failed to check onboarding status", err);
+      }
+
+      setAuthResolved(true);
+
+      if (joinCodeRef.current) {
+        const code = joinCodeRef.current;
+        joinCodeRef.current = null;
         try {
           const token = await firebaseUser.getIdToken();
           const res = await requestApi({
-            path: 'preferences',
-            headers: { 'Authorization': `Bearer ${token}` }
+            path: 'circles/join',
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invite_code: code })
           });
           if (res.ok) {
-            const prefs = await res.json();
-            // If the user has default preferences (e.g. no cuisine set), or if this is their first login
-            // We can decide to show the survey. For now, let's show it if they have no custom cuisine prefs
-            if (prefs.cuisine_preferences === 'any' || !prefs.has_onboarded) {
-              setShowPreferences(true);
-            }
+            const data = await res.json();
+            setActiveCircleId(data.id);
+            setCurrentView('circle');
+          } else {
+            setJoinError('Invalid invite code');
           }
         } catch (err) {
-          console.error("Failed to check onboarding status", err);
-        }
-
-        if (joinCodeRef.current) {
-          const code = joinCodeRef.current;
-          joinCodeRef.current = null;
-          try {
-            const token = await firebaseUser.getIdToken();
-            const res = await requestApi({
-              path: 'circles/join',
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ invite_code: code })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setShowAuthModal(false);
-              setActiveCircleId(data.id);
-              setCurrentView('circle');
-            } else {
-              setJoinError('Invalid invite code');
-            }
-          } catch (err) {
-            console.error('Failed to join circle from link', err);
-            setJoinError('Could not join circle. Please try again.');
-          }
+          console.error('Failed to join circle from link', err);
+          setJoinError('Could not join circle. Please try again.');
         }
       }
     });
@@ -149,24 +167,21 @@ function App() {
     const formData = new FormData();
     formData.append('image', file);
 
-    // Build headers — include auth token if logged in
     const headers = {};
     const token = await getAuthToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    // Start a simulation to move through steps if the backend takes a while
     const stepInterval = setInterval(() => {
       setActiveStep((prev) => {
-        // Step automatically up to second-to-last step (index 2 out of 3. Length - 2)
         if (prev < steps.length - 2) return prev + 1;
         return prev;
       });
-    }, 5000);  
+    }, 5000);
 
     try {
       setActiveStep(0);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       const response = await requestApi({
         path: 'analyze-food',
@@ -182,23 +197,22 @@ function App() {
         let errorMsg = `Server error: ${response.status}`;
         try {
           const errorData = JSON.parse(errorText);
-          errorMsg = errorData.detail || errorMsg;
-        } catch (e) {}
+          if (errorData?.detail) errorMsg = errorData.detail;
+        } catch {
+          errorMsg = `Server error: ${response.status}`;
+        }
         throw new Error(errorMsg);
       }
 
       const data = await response.json();
-      console.log("Analysis Result:", data);
-      
-      // Push progress bar to the absolute finale
+
       setActiveStep(steps.length - 1);
-      
-      // Delay so the animated line completes its journey satisfyingly
+
       setTimeout(() => {
         setResult(data);
         setIsLoading(false);
       }, 1600);
-      
+
     } catch (err) {
       console.error('Upload error details:', err);
       if (err?.name === 'AbortError') {
@@ -215,15 +229,11 @@ function App() {
   };
 
   const handleSaveRecipe = async (recipe) => {
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
+    if (!user) return;
     const recipeKey = recipe.name;
     try {
       const token = await getAuthToken();
       if (savedRecipeIds[recipeKey]) {
-        // Unsave
         await requestApi({
           path: `saved-recipes/${savedRecipeIds[recipeKey]}`,
           method: 'DELETE',
@@ -235,7 +245,6 @@ function App() {
           return updated;
         });
       } else {
-        // Save
         const res = await requestApi({
           path: 'saved-recipes',
           method: 'POST',
@@ -256,220 +265,269 @@ function App() {
   const handleSignOut = async () => {
     await signOut(auth);
     setSavedRecipeIds({});
+    setCurrentView('circles');
+    setScanOpen(false);
   };
 
+  const openScan = (mode) => {
+    setResult(null);
+    setError(null);
+    setCustomError(null);
+    setScanMode(mode === 'custom' ? 'custom' : 'photo');
+    setScanOpen(true);
+  };
+
+  const closeScan = () => setScanOpen(false);
+
+  const handleGenerateRecipe = async (dishName) => {
+    setCustomLoading(true);
+    setCustomError(null);
+    setError(null);
+    setResult(null);
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      const token = await getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await requestApi({
+        path: 'generate-recipe',
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ dish_name: dishName }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMsg = `Server error: ${response.status}`;
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData?.detail) errorMsg = errorData.detail;
+        } catch {
+          errorMsg = `Server error: ${response.status}`;
+        }
+        throw new Error(errorMsg);
+      }
+
+      const data = await response.json();
+      setResult(data);
+    } catch (err) {
+      console.error('Generate recipe error:', err);
+      setCustomError(err.message || 'Could not generate a recipe. Please try again.');
+    } finally {
+      setCustomLoading(false);
+    }
+  };
+
+  const handleScanSubmitNow = () => {
+    const cook = readPendingCook();
+    if (cook) setScanSubmit(cook);
+  };
+
+  const handleScanCookFirst = () => {
+    setScanSubmit(null);
+    setScanOpen(false);
+    setResult(null);
+  };
+
+  const handleScanSubmitScored = () => {
+    scanSubmitScoredRef.current = true;
+  };
+
+  const handleScanSubmitClose = () => {
+    const scored = scanSubmitScoredRef.current;
+    const circleId = scanSubmit?.circle_id;
+    scanSubmitScoredRef.current = false;
+    setScanSubmit(null);
+    if (scored) {
+      setScanOpen(false);
+      setResult(null);
+      if (circleId) openCircle(circleId);
+    }
+  };
+
+  const removeSavedById = (id) => {
+    const recipeKey = Object.keys(savedRecipeIds).find(key => savedRecipeIds[key] === id);
+    if (recipeKey) {
+      setSavedRecipeIds(prev => {
+        const updated = { ...prev };
+        delete updated[recipeKey];
+        return updated;
+      });
+    }
+  };
+
+  const renderProfile = () => (
+    <div className="screen">
+      <Profile user={user} />
+      <div className="account-links">
+        <button className="account-link" onClick={() => setShowPreferences(true)}>
+          <UtensilsIcon size={22} />
+          Taste preferences
+          <ChevronRightIcon size={20} className="account-link__chevron" />
+        </button>
+        <button className="account-link" onClick={handleSignOut}>
+          <LogOutIcon size={22} />
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderView = () => {
+    switch (currentView) {
+      case 'circle':
+        return (
+          <CircleDetail
+            user={user}
+            circleId={activeCircleId}
+            onBack={() => setCurrentView('circles')}
+            pendingCook={pendingCook}
+            onPendingCookChange={refreshPendingCook}
+            onOpenScan={openScan}
+            autoOpenSubmit={autoOpenSubmit}
+            onAutoSubmitHandled={clearAutoSubmit}
+          />
+        );
+      case 'profile':
+        return renderProfile();
+      case 'history':
+        return <History user={user} />;
+      case 'saved':
+        return <SavedRecipes user={user} onUnsave={removeSavedById} />;
+      default:
+        return <Circles user={user} onOpenCircle={openCircle} />;
+    }
+  };
+
+  if (!authResolved) {
+    return (
+      <div className="splash">
+        <span className="splash__wordmark">NutriSnap</span>
+        <span className="spinner" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen />;
+  }
+
+  if (needsOnboarding) {
+    return <OnboardingFlow user={user} onComplete={() => setNeedsOnboarding(false)} />;
+  }
+
   return (
-    <div className="app-shell">
-      <Sidebar 
-        isOpen={isSidebarOpen} 
-        onClose={() => setIsSidebarOpen(false)} 
-        user={user}
-        onSignIn={() => setShowAuthModal(true)}
-        onSignOut={handleSignOut}
-        onOpenPreferences={() => {
-          setIsSidebarOpen(false);
-          setShowPreferences(true);
-        }}
-        onNavigate={setCurrentView}
-        currentView={currentView}
-      />
-      
-      <main className="main-viewport" style={{ overflowY: (currentView === 'home' && !result && !isLoading) ? 'hidden' : 'auto' }}>
-        <header className="top-bar">
-          <button className="rounded-btn" onClick={() => setIsSidebarOpen(true)}>
-            <span style={{ fontSize: '1.2rem' }}>⠿</span> Menu
+    <div className="app">
+      <header className="app-header">
+        <div className="app-header__inner">
+          <div className="app-header__brand">
+            <span className="app-header__wordmark">NutriSnap</span>
+          </div>
+          <button className="icon-btn" onClick={() => setShowPreferences(true)} aria-label="Taste preferences">
+            <SettingsIcon size={22} />
           </button>
-          <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center' }}>
-            <img src="/logo.png" alt="NutriSnap" style={{ height: '95px', marginTop: '10px', objectFit: 'contain', pointerEvents: 'none' }} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-            {!user ? (
-               <button 
-                 className="rounded-btn" 
-                 onClick={() => setShowAuthModal(true)}
-                 style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-               >
-                 Sign In
-               </button>
-             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                  <button 
-                    onClick={() => setShowPreferences(true)}
-                    title="Personalize"
-                    style={{ 
-                      background: '#000000', 
-                      border: '1px solid rgba(255, 255, 255, 0.2)', 
-                      color: '#FFFFFF', 
-                      cursor: 'pointer', 
-                      width: '40px', 
-                      height: '40px', 
-                      borderRadius: '50%', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
-                      backdropFilter: 'blur(10px)',
-                      WebkitBackdropFilter: 'blur(10px)'
-                    }}
-                    onMouseOver={(e) => { 
-                      e.currentTarget.style.background = '#111111'; 
-                      e.currentTarget.style.transform = 'scale(1.05)'; 
-                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.7)';
-                    }}
-                    onMouseOut={(e) => { 
-                      e.currentTarget.style.background = '#000000'; 
-                      e.currentTarget.style.transform = 'scale(1)'; 
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
-                    }}
-                  >
-                    <img 
-                      src="/gear.png" 
-                      alt="Preferences Gear" 
-                      style={{ 
-                        filter: 'brightness(0) invert(1)',
-                        width: '24px', 
-                        height: '24px', 
-                        objectFit: 'contain'
-                      }} 
-                    />
-                  </button>
-                </div>
-              )}
-            </div>
-        </header>
+        </div>
+      </header>
 
-        {joinError && (
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem',
-            background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)',
-            color: 'var(--red)', padding: '10px 16px', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem'
-          }}>
-            <span>{joinError}</span>
-            <button
-              onClick={() => setJoinError('')}
-              style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: '1rem' }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {pendingCook && (
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem',
-            background: 'rgba(48, 209, 88, 0.1)', border: '1px solid rgba(48, 209, 88, 0.25)',
-            color: 'var(--text-primary)', padding: '10px 16px', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem'
-          }}>
-            <span
-              onClick={() => openCircle(pendingCook.circle_id)}
-              style={{ cursor: 'pointer', flex: 1 }}
-            >
-              🍳 You're cooking <strong>{pendingCook.recipe?.name}</strong> for {pendingCook.circle_name} —{' '}
-              <span style={{ color: 'var(--green)', fontWeight: 600 }}>Submit dish</span>
-            </span>
-            <button
-              onClick={dismissPendingCook}
-              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        <section className="content-center">
-          {currentView === 'circles' ? (
-            <Circles user={user} onOpenCircle={openCircle} />
-          ) : currentView === 'circle' ? (
-            <CircleDetail
-              user={user}
-              circleId={activeCircleId}
-              onBack={() => setCurrentView('circles')}
-              pendingCook={pendingCook}
-              onPendingCookChange={refreshPendingCook}
-            />
-          ) : currentView === 'profile' ? (
-            <Profile user={user} />
-          ) : currentView === 'history' ? (
-            <History user={user} />
-          ) : currentView === 'saved_recipes' ? (
-            <SavedRecipes 
-              user={user} 
-              onUnsave={(id) => {
-                const recipeKey = Object.keys(savedRecipeIds).find(key => savedRecipeIds[key] === id);
-                if (recipeKey) {
-                  setSavedRecipeIds(prev => {
-                    const updated = { ...prev };
-                    delete updated[recipeKey];
-                    return updated;
-                  });
-                }
-              }} 
-            />
-          ) : !result ? (
-            <div className="fade-in" style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <UploadCard 
-                onUpload={handleUpload} 
-                isLoading={isLoading} 
-                activeStep={activeStep}
-                steps={steps}
-                error={error}
-              />
-              {error && !error.includes("Not enough ingredients") && (
-                <div style={{ 
-                  marginTop: '1.5rem', 
-                  color: 'var(--red)', 
-                  fontSize: '0.9rem',
-                  background: 'rgba(255, 69, 58, 0.1)',
-                  padding: '10px 20px',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255, 69, 58, 0.2)'
-                }}>
-                  {error}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="fade-in" style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
-              {!user && (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '1rem',
-                  background: 'rgba(76, 175, 80, 0.1)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(76, 175, 80, 0.2)',
-                  fontSize: '0.95rem',
-                  color: 'var(--text-secondary)',
-                  maxWidth: '800px',
-                  width: '100%'
-                }}>
-                  💡 <span
-                    style={{ color: 'var(--green)', cursor: 'pointer', fontWeight: 600 }}
-                    onClick={() => setShowAuthModal(true)}
-                  >
-                    Sign in
-                  </span> to save recipes and get deep personalization.
-                </div>
-              )}
-              <AnalysisResults
-                data={result}
-                onReset={() => setResult(null)}
-                onSaveRecipe={handleSaveRecipe}
-                savedRecipeIds={savedRecipeIds}
-                user={user}
-                onRequireAuth={() => setShowAuthModal(true)}
-                onPendingCookChange={refreshPendingCook}
-              />
+      <main className="app-main">
+        <div className="content-column">
+          {joinError && (
+            <div className="banner banner--error">
+              <div className="banner__body">{joinError}</div>
+              <button className="banner__close" onClick={() => setJoinError('')} aria-label="Dismiss">
+                <CloseIcon size={18} />
+              </button>
             </div>
           )}
-        </section>
+
+          {pendingCook && (
+            <div className="banner banner--info">
+              <div className="banner__body" onClick={() => { openCircle(pendingCook.circle_id); setAutoOpenSubmit(true); }} style={{ cursor: 'pointer' }}>
+                You are cooking <strong>{pendingCook.recipe?.name}</strong> for {pendingCook.circle_name} —{' '}
+                <span className="link-strong">submit your dish</span>
+              </div>
+              <button className="banner__close" onClick={dismissPendingCook} aria-label="Stop cooking this dish">
+                <CloseIcon size={18} />
+              </button>
+            </div>
+          )}
+
+          {renderView()}
+        </div>
       </main>
 
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
-      <PreferencesSurvey 
-        isOpen={showPreferences} 
-        onClose={() => setShowPreferences(false)} 
-        user={user} 
+      <BottomNav currentView={currentView} onNavigate={setCurrentView} onSnap={openScan} />
+
+      {scanOpen && (
+        <div className="scan-flow" role="dialog" aria-label="Snap ingredients">
+          <div className="scan-flow__header">
+            <button className="icon-btn" onClick={closeScan} aria-label="Close">
+              <CloseIcon size={20} />
+            </button>
+            <span className="scan-flow__title">{result ? 'Your recipes' : 'Snap ingredients'}</span>
+          </div>
+          <div className="scan-flow__body">
+            <div className="scan-flow__column">
+              {result ? (
+                <AnalysisResults
+                  data={result}
+                  onReset={() => setResult(null)}
+                  onSaveRecipe={handleSaveRecipe}
+                  savedRecipeIds={savedRecipeIds}
+                  user={user}
+                  onRequireAuth={() => {}}
+                  onPendingCookChange={refreshPendingCook}
+                  onScanSubmitNow={handleScanSubmitNow}
+                  onScanCookFirst={handleScanCookFirst}
+                />
+              ) : (
+                <>
+                  <div className="home-hero">
+                    <Mascot pose="wave" size={112} animate title="NutriSnap chef mascot" />
+                    <h1>Snap it. Cook it. Win it.</h1>
+                    <p>Photograph your ingredients and get instant recipes worth cooking.</p>
+                  </div>
+                  <UploadCard
+                    onUpload={handleUpload}
+                    isLoading={isLoading}
+                    activeStep={activeStep}
+                    steps={steps}
+                    error={error}
+                  />
+                  {error && !error.includes("Not enough ingredients") && (
+                    <div className="banner banner--error">
+                      <div className="banner__body">{error}</div>
+                    </div>
+                  )}
+                  <CustomDishInput
+                    onGenerate={handleGenerateRecipe}
+                    isLoading={customLoading}
+                    error={customError}
+                    autoFocus={scanMode === 'custom'}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
+          {scanSubmit && (
+            <SubmitDish
+              user={user}
+              circleId={scanSubmit.circle_id}
+              pendingCook={scanSubmit}
+              onClose={handleScanSubmitClose}
+              onSubmitted={handleScanSubmitScored}
+              onPendingCookChange={refreshPendingCook}
+            />
+          )}
+        </div>
+      )}
+
+      <PreferencesSurvey
+        isOpen={showPreferences}
+        onClose={() => setShowPreferences(false)}
+        user={user}
       />
     </div>
   );

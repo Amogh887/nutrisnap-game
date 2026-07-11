@@ -2,6 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { requestApi, resolveApiUrl } from '../apiClient';
 import RevealPodium from './RevealPodium';
 import SubmitDish from './SubmitDish';
+import CountUp from './CountUp';
+import {
+  ArrowLeftIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CopyIcon,
+  ShareIcon,
+  FlameIcon,
+  MedalIcon,
+  CheckIcon,
+  CameraIcon,
+  SparklesIcon,
+} from './icons';
 
 function isoWeekToMonday(year, week) {
   const jan4 = new Date(Date.UTC(year, 0, 4));
@@ -38,47 +53,45 @@ function formatCountdown(cutoffUtc) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
+function weekProgressPct(cutoffUtc) {
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const diff = new Date(cutoffUtc).getTime() - Date.now();
+  if (diff <= 0) return 100;
+  const pct = (1 - diff / weekMs) * 100;
+  return Math.max(4, Math.min(100, pct));
+}
+
+const rankClasses = ['rank-badge--gold', 'rank-badge--silver', 'rank-badge--bronze'];
+
 function DishCard({ dish }) {
   const rejected = dish.status && dish.status !== 'scored';
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-small)',
-      padding: '0.8rem', opacity: rejected ? 0.55 : 1,
-      border: '1px solid rgba(255,255,255,0.04)'
-    }}>
+    <div className={`dish-card ${rejected ? 'is-rejected' : ''}`}>
       {dish.photo_url && (
-        <img
-          src={resolveApiUrl(dish.photo_url)}
-          alt={dish.recipe_name}
-          style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '10px', marginBottom: '0.6rem' }}
-        />
+        <img src={resolveApiUrl(dish.photo_url)} alt={dish.recipe_name} className="dish-card__photo" />
       )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
-        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{dish.recipe_name}</span>
+      <div className="dish-card__row">
+        <span className="dish-card__name">{dish.recipe_name}</span>
         {rejected ? (
-          <span style={{ fontSize: '0.72rem', color: 'var(--red)', textTransform: 'capitalize' }}>{dish.status}</span>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-primary)', fontWeight: 700, textTransform: 'capitalize' }}>{dish.status}</span>
         ) : (
-          <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: '0.9rem' }}>{dish.points} pts</span>
+          <span className="pill pill--points" style={{ padding: '5px 11px', fontSize: 'var(--text-sm)' }}>{dish.points} pts</span>
         )}
       </div>
       {!rejected && (
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
-          <span style={{ padding: '3px 9px', background: 'rgba(10, 132, 255, 0.12)', color: 'var(--blue)', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 600 }}>
-            difficulty {dish.difficulty}
-          </span>
-          <span style={{ padding: '3px 9px', background: 'rgba(48, 209, 88, 0.12)', color: 'var(--green)', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 600 }}>
-            stretch {dish.stretch}
-          </span>
+        <div className="row-wrap" style={{ gap: '6px' }}>
+          <span className="pill pill--blue" style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}>difficulty {dish.difficulty}</span>
+          <span className="pill pill--mint" style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}>stretch {dish.stretch}</span>
         </div>
       )}
       {dish.feedback && (
-        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{dish.feedback}</p>
+        <p className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-sm)', lineHeight: 1.4 }}>{dish.feedback}</p>
       )}
     </div>
   );
 }
 
-export default function CircleDetail({ user, circleId, onBack, pendingCook, onPendingCookChange }) {
+export default function CircleDetail({ user, circleId, onBack, pendingCook, onPendingCookChange, onOpenScan, autoOpenSubmit, onAutoSubmitHandled }) {
   const [circle, setCircle] = useState(null);
   const [leaderboard, setLeaderboard] = useState(null);
   const [weekParam, setWeekParam] = useState(null);
@@ -147,6 +160,13 @@ export default function CircleDetail({ user, circleId, onBack, pendingCook, onPe
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (autoOpenSubmit) {
+      setShowSubmit(true);
+      if (onAutoSubmitHandled) onAutoSubmitHandled();
+    }
+  }, [autoOpenSubmit, onAutoSubmitHandled]);
+
   const handleSubmitted = () => {
     fetchCircle();
     if (weekParam) setWeekParam(null);
@@ -186,7 +206,7 @@ export default function CircleDetail({ user, circleId, onBack, pendingCook, onPe
 
   if (!user) {
     return (
-      <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-secondary)' }}>
+      <div className="gate">
         <h2>Sign in to view this circle</h2>
       </div>
     );
@@ -200,6 +220,19 @@ export default function CircleDetail({ user, circleId, onBack, pendingCook, onPe
   const shareLink = inviteCode ? `${window.location.origin}/?join=${inviteCode}` : '';
   const hasPendingHere = pendingCook && pendingCook.circle_id === circleId;
 
+  const cookCtaButtons = (
+    <div className="cook-cta__actions">
+      <button className="clay-btn clay-btn--primary" onClick={() => onOpenScan && onOpenScan('photo')}>
+        <CameraIcon size={18} />
+        Snap ingredients
+      </button>
+      <button className="clay-btn clay-btn--ghost" onClick={() => onOpenScan && onOpenScan('custom')}>
+        <SparklesIcon size={18} />
+        Name your own dish
+      </button>
+    </div>
+  );
+
   const goPrev = () => {
     if (!displayedWeek) return;
     setWeekParam(shiftWeek(displayedWeek, -1));
@@ -211,136 +244,116 @@ export default function CircleDetail({ user, circleId, onBack, pendingCook, onPe
     else setWeekParam(next);
   };
 
-  const chipBtn = {
-    background: 'var(--bg-tertiary)', border: 'none', color: 'var(--text-primary)',
-    padding: '6px 12px', borderRadius: '12px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600
-  };
-
   return (
-    <div className="fade-in" style={{ width: '100%', maxWidth: '820px', margin: '0 auto' }}>
-      <button className="rounded-btn" onClick={onBack} style={{ marginBottom: '1.5rem', padding: '0.6rem 1.2rem' }}>
-        ← Circles
+    <div className="screen">
+      <button className="clay-btn clay-btn--ghost" onClick={onBack} style={{ alignSelf: 'flex-start' }}>
+        <ArrowLeftIcon size={20} />
+        Circles
       </button>
 
-      <div className="premium-card" style={{ marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
-          <div>
-            <h2 style={{ fontSize: '1.8rem', fontWeight: 700, margin: '0 0 0.3rem 0', letterSpacing: '-0.5px' }}>
-              {circle?.name || 'Circle'}
-            </h2>
-            {circle?.cutoff_utc && (
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                ⏳ {formatCountdown(circle.cutoff_utc)}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={handleLeave}
-            disabled={leaving}
-            style={{
-              background: 'rgba(255, 69, 58, 0.1)', border: 'none', color: 'var(--red)',
-              padding: '8px 16px', borderRadius: '20px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem'
-            }}
-          >
+      <div className="clay-card">
+        <div className="cd-header">
+          <h2>{circle?.name || 'Circle'}</h2>
+          <button className="clay-btn clay-btn--soft" onClick={handleLeave} disabled={leaving} style={{ minHeight: '44px', padding: '10px 18px' }}>
             {leaving ? 'Leaving...' : 'Leave'}
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', marginTop: '1.2rem', flexWrap: 'wrap' }}>
-          <button onClick={() => copyText(inviteCode, 'invite')} style={chipBtn}>
-            {copied === 'invite' ? 'Copied!' : `Code: ${inviteCode}`}
+        {circle?.cutoff_utc && (
+          <div className="progress-block">
+            <div className="progress-meta">
+              <span>Reveal countdown</span>
+              <span className="flame"><FlameIcon size={16} /> {formatCountdown(circle.cutoff_utc)}</span>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${weekProgressPct(circle.cutoff_utc)}%` }} />
+            </div>
+          </div>
+        )}
+
+        <div className="stat-row">
+          <button className="clay-btn clay-btn--soft" onClick={() => copyText(inviteCode, 'invite')} style={{ minHeight: '44px', padding: '10px 16px' }}>
+            {copied === 'invite' ? <><CheckIcon size={18} /> Copied</> : <><CopyIcon size={18} /> {inviteCode}</>}
           </button>
-          <button onClick={() => copyText(shareLink, 'share')} style={chipBtn}>
-            {copied === 'share' ? 'Copied!' : '🔗 Share link'}
+          <button className="clay-btn clay-btn--soft" onClick={() => copyText(shareLink, 'share')} style={{ minHeight: '44px', padding: '10px 16px' }}>
+            {copied === 'share' ? <><CheckIcon size={18} /> Copied</> : <><ShareIcon size={18} /> Share link</>}
           </button>
         </div>
 
         {circle && (
-          <div style={{ marginTop: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            {circle.my_scored_today}/3 dishes scored · {circle.my_attempts_today}/10 attempts today
+          <div className="stat-row">
+            <span className="pill pill--mint"><FlameIcon size={16} /> {circle.my_scored_today}/3 scored today</span>
+            <span className="pill pill--blue">{circle.my_attempts_today}/10 attempts</span>
+          </div>
+        )}
+
+        {!hasPendingHere && (
+          <div className="cook-cta">
+            <div className="cook-cta__title">Cook a dish for this circle</div>
+            {cookCtaButtons}
           </div>
         )}
       </div>
 
       {hasPendingHere && (
-        <div className="premium-card" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', border: '1px solid rgba(48, 209, 88, 0.3)' }}>
+        <div className="clay-card" style={{ borderColor: 'var(--color-cta)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Ready to submit?</div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              You are cooking {pendingCook.recipe?.name} for this circle.
-            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, color: 'var(--color-heading)' }}>Ready to submit?</div>
+            <div className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>You are cooking {pendingCook.recipe?.name} for this circle.</div>
           </div>
-          <button
-            className="rounded-btn primary"
-            onClick={() => setShowSubmit(true)}
-            style={{ padding: '0.7rem 1.3rem' }}
-          >
-            Submit your {pendingCook.recipe?.name}
+          <button className="clay-btn clay-btn--cta" onClick={() => setShowSubmit(true)}>
+            Submit dish
           </button>
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', marginBottom: '1.2rem' }}>
-        <button onClick={goPrev} style={{ ...chipBtn, padding: '6px 14px' }}>←</button>
-        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>
-          {displayedWeek || '—'}{isCurrentWeek ? ' · Live' : ''}
-        </span>
-        <button
-          onClick={goNext}
-          disabled={isCurrentWeek}
-          style={{ ...chipBtn, padding: '6px 14px', opacity: isCurrentWeek ? 0.4 : 1, cursor: isCurrentWeek ? 'default' : 'pointer' }}
-        >
-          →
-        </button>
+      <div className="week-nav">
+        <button className="icon-btn" onClick={goPrev} aria-label="Previous week"><ChevronLeftIcon size={22} /></button>
+        <span className="week-nav__label">{displayedWeek || '—'}{isCurrentWeek ? ' · Live' : ''}</span>
+        <button className="icon-btn" onClick={goNext} disabled={isCurrentWeek} aria-label="Next week"><ChevronRightIcon size={22} /></button>
       </div>
 
       {showPodium && <RevealPodium results={leaderboard.results} />}
 
       {error ? (
-        <div style={{ color: 'var(--red)', textAlign: 'center', marginTop: '1rem' }}>{error}</div>
+        <div className="banner banner--error"><div className="banner__body">{error}</div></div>
       ) : loadingLb && !leaderboard ? (
-        <div style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '1rem' }}>Loading leaderboard...</div>
+        <div className="empty-state"><span className="spinner" /><p>Loading leaderboard...</p></div>
       ) : standings.length === 0 ? (
-        <div style={{ textAlign: 'center', marginTop: '1rem', color: 'var(--text-secondary)' }}>
-          <p>No dishes submitted this week yet.</p>
+        <div className="empty-state">
+          <h2>No dishes yet</h2>
+          <p>Be the first to cook and submit a dish this week.</p>
+          {!hasPendingHere && cookCtaButtons}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+        <div className="stack" style={{ gap: '10px' }}>
           {standings.map((row, idx) => {
             const isExpanded = expandedRows[row.uid];
+            const rankClass = idx < 3 ? rankClasses[idx] : 'rank-badge--plain';
             return (
-              <div key={row.uid} className="premium-card" style={{ padding: '1.2rem' }}>
-                <div
-                  onClick={() => toggleRow(row.uid)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '1rem', cursor: 'pointer' }}
-                >
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
-                    background: idx < 3 ? 'var(--green)' : 'var(--bg-tertiary)',
-                    color: idx < 3 ? '#000' : 'var(--text-secondary)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.9rem'
-                  }}>
-                    {idx + 1}
+              <div key={row.uid} className="clay-card standing-row">
+                <div className="standing-row__head" onClick={() => toggleRow(row.uid)} role="button" tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter') toggleRow(row.uid); }}>
+                  <div className={`rank-badge ${rankClass}`}>
+                    {idx < 3 ? <MedalIcon size={20} /> : idx + 1}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {row.display_name}{row.left_circle ? ' (left)' : ''}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <div className="standing-name">
+                    <strong>{row.display_name}{row.left_circle ? ' (left)' : ''}</strong>
+                    <div className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
                       {row.submission_count} {row.submission_count === 1 ? 'dish' : 'dishes'}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{row.total_points}</div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>points</div>
+                  <div className="standing-points">
+                    <b><CountUp value={row.total_points} /></b>
+                    <div className="muted" style={{ fontWeight: 600, fontSize: 'var(--text-xs)' }}>points</div>
                   </div>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{isExpanded ? '▲' : '▼'}</span>
+                  <span className="muted">{isExpanded ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}</span>
                 </div>
 
                 {isExpanded && (
-                  <div className="fade-in" style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.8rem' }}>
+                  <div className="dish-grid fade-in">
                     {(row.submissions || []).length === 0 ? (
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No dishes yet.</div>
+                      <div className="muted" style={{ fontWeight: 600 }}>No dishes yet.</div>
                     ) : (
                       row.submissions.map((dish) => <DishCard key={dish.id} dish={dish} />)
                     )}
