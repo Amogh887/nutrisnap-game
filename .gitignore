@@ -20,6 +20,14 @@ __pycache__/
 # Uploaded dish photos
 backend/media/
 
+# Local filesystem data store (per-user profiles/preferences in dev)
+backend/local_data/
+
+# Installed design-assistant skill packs and their lockfile
+.claude/skills/
+.agents/
+skills-lock.json
+
 # OS files
 .DS_Store
 Thumbs.db
