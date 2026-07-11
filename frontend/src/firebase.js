@@ -2,12 +2,12 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBV7V78tNmw4XtqPFp9oOou1rlsYj0fW3Q",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "nutrisnap-488820.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "nutrisnap-488820",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "nutrisnap-488820.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "35949888118",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:35949888118:web:24f530ef712773fb77d557"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAtkcQhcRRHggZHqlewdMt3c4_8CmICHnk",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "claude-hacka.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "claude-hacka",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "claude-hacka.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "375573010504",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:375573010504:web:8a1d96e3896508eacaa07d"
 };
 
 const app = initializeApp(firebaseConfig);
